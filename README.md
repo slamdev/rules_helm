@@ -1,2 +1,1 @@
-# rules_helm
-Helm rules for Bazel
+# Helm rules for [Bazel](https://bazel.build)
