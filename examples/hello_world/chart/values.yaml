@@ -1,0 +1,2 @@
+image:
+  ref: "index.docker.io/slamdev/rules_helm-hello_world:latest"
