@@ -21,23 +21,21 @@ jobs:
         with:
           path: ~/.cache/bazel
           key: repo-cache-${{ matrix.os }}-${{ matrix.bazel }}
-      - uses: suyash/actions-bazelisk@v1
-#      - name: Install Ubuntu Dependencies
-#        if: ${{ matrix.os == 'ubuntu-20.04' }}
-#        run: sudo apt-get install -y libgl-dev libgl1-mesa-dev libx11-dev mesa-common-dev libglu1-mesa-dev libxxf86vm-dev libxcursor-dev libpango1.0-dev libpangocairo-1.0-0 libcairo2-dev
-#
-#      - name: Install MacOS Dependencies
-#        if: ${{ matrix.os == 'macos-11.0' }}
-#        run: |
-#          brew install openssl irrlicht
-#          ln -s /usr/local/opt/openssl/include/openssl /usr/local/include
-#          ln -s /usr/local/opt/openssl/lib/libssl.1.0.0.dylib /usr/local/lib/
+      - name: Install bazelisk
+        run: |
+          if [[ "${{ matrix.os }}" == "macos-latest" ]]; then
+            OS=darwin
+          else
+            OS=linux
+          fi
+          curl -o bazel "https://github.com/bazelbuild/bazelisk/releases/download/v1.7.5/bazelisk-${OS}-amd64"
+          chmod +x bazel
       - name: Set Bazelisk Version ${{ matrix.bazel }}
         run: |
           echo ${{ matrix.bazel }} > .bazelversion
       - name: Build
         run: |
-          bazel build //... --disk_cache=~/.cache/bazel
+          ./bazel build //... --disk_cache=~/.cache/bazel
       - name: Test
         run: |
-          bazel test //... --disk_cache=~/.cache/bazel
+          ./bazel test //... --disk_cache=~/.cache/bazel
