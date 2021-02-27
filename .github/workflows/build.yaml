@@ -11,7 +11,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ ubuntu-20.04, macos-11.0 ]
+        os: [ ubuntu-latest, macos-latest ]
         bazel: [ 3.7.2, 4.0.0 ]
     runs-on: ${{ matrix.os }}
     name: OS ${{ matrix.os }} bazel ${{ matrix.bazel }}
