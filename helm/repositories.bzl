@@ -57,19 +57,101 @@ _ATTRS = {
 }
 
 def _helm_repo_impl(repository_ctx):
-    repository_ctx.report_progress("Downloading Helm releases info")
-    repository_ctx.download(
-        url = ["https://api.github.com/repos/helm/helm/releases"],
-        output = "versions.json",
-    )
-    versions = repository_ctx.read("versions.json")
+    """Fetch Helm binary for the specified version and platform.
+
+    This implementation handles GitHub API pagination to ensure we fetch
+    all releases, not just the first 100.
+    """
+    repository_ctx.report_progress("Fetching Helm release information from GitHub")
+
+    # Collect all releases across multiple pages
+    all_releases = []
+    page = 1
+    max_pages = 20  # Safety limit to prevent infinite loops
+
+    while page <= max_pages:
+        repository_ctx.report_progress("Fetching releases page {}".format(page))
+
+        # Use curl with -I to first get headers and check for Link header
+        header_result = repository_ctx.execute(
+            ["curl", "-sI", "https://api.github.com/repos/helm/helm/releases?per_page=100&page={}".format(page)],
+            timeout = 30,
+            quiet = True,
+        )
+
+        if header_result.return_code != 0:
+            fail("Failed to fetch release headers from GitHub API: {}".format(header_result.stderr))
+
+        # Now fetch the actual data
+        data_result = repository_ctx.execute(
+            ["curl", "-s", "https://api.github.com/repos/helm/helm/releases?per_page=100&page={}".format(page)],
+            timeout = 60,
+            quiet = True,
+        )
+
+        if data_result.return_code != 0:
+            fail("Failed to fetch releases from GitHub API (page {}): {}".format(page, data_result.stderr))
+
+        # Parse the JSON response
+        try:
+            page_releases = json.decode(data_result.stdout)
+        except:
+            fail("Failed to parse GitHub API response on page {}. Response: {}".format(
+                page,
+                data_result.stdout[:500] if len(data_result.stdout) > 500 else data_result.stdout
+            ))
+
+        # Validate response format
+        if type(page_releases) != "list":
+            # Check if we hit rate limiting or other API errors
+            if type(page_releases) == "dict" and "message" in page_releases:
+                fail("GitHub API error: {}".format(page_releases.get("message", "Unknown error")))
+            fail("Unexpected response format from GitHub API on page {}".format(page))
+
+        # Add releases from this page
+        all_releases.extend(page_releases)
+
+        # Check if there's a next page by examining the Link header
+        has_next_page = False
+        for line in header_result.stdout.split("\n"):
+            if line.lower().startswith("link:"):
+                # GitHub includes rel="next" in Link header if there are more pages
+                if 'rel="next"' in line:
+                    has_next_page = True
+                    break
+
+        # Stop if no more pages or empty page
+        if not has_next_page or len(page_releases) == 0:
+            break
+
+        page += 1
+
+    repository_ctx.report_progress("Processed {} releases from GitHub API".format(len(all_releases)))
+
+    # Search for the requested version
     version_found = False
-    for v in json.decode(versions):
-        version = v["tag_name"].lstrip("v")
+    for release in all_releases:
+        if "tag_name" not in release:
+            continue
+        version = release["tag_name"].lstrip("v")
         if version == repository_ctx.attr.helm_version:
             version_found = True
+            break
+
     if not version_found:
-        fail("did not find {} version in https://api.github.com/repos/helm/helm/releases".format(repository_ctx.attr.helm_version))
+        # Provide helpful error message with available versions
+        available_versions = []
+        for release in all_releases[:20]:  # Show first 20 versions
+            if "tag_name" in release:
+                available_versions.append(release["tag_name"].lstrip("v"))
+
+        fail("""Helm version '{}' not found among {} available releases.
+Recent versions include: {}
+Check https://github.com/helm/helm/releases for all available versions.""".format(
+            repository_ctx.attr.helm_version,
+            len(all_releases),
+            ", ".join(available_versions)
+        ))
 
     file_url = "https://get.helm.sh/helm-v{}-{}.tar.gz".format(repository_ctx.attr.helm_version, repository_ctx.attr.platform)
 
